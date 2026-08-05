@@ -53,7 +53,9 @@ def paste(pid: Optional[int] = None):
 
 
 def toggle_ime(pid: Optional[int] = None):
-    _send_key(57, 0, pid)   # keycode 57 = Caps Lock = 한영 전환
+    # Caps Lock은 modifier 키 → kCGEventFlagsChanged 타입으로 보내야 함
+    # CGEventCreateKeyboardEvent로 보내면 무시됨
+    _send_capslock(pid)
 
 
 # ── 스크롤 이벤트 ────────────────────────────────────────────
@@ -92,6 +94,34 @@ def current_input_lang() -> str:
 def _cmd() -> int:
     from Quartz import kCGEventFlagMaskCommand
     return kCGEventFlagMaskCommand
+
+
+def _send_capslock(pid: Optional[int]):
+    """Caps Lock = modifier 키이므로 kCGEventFlagsChanged 타입 이벤트로 전송."""
+    from Quartz import (
+        CGEventCreate, CGEventSetType, CGEventSetFlags,
+        CGEventSetIntegerValueField,
+        CGEventPost, CGEventPostToPid, kCGHIDEventTap,
+        kCGEventFlagsChanged, kCGEventFlagMaskAlphaShift,
+        kCGKeyboardEventKeycode,
+    )
+
+    def _make(flag_on: bool):
+        e = CGEventCreate(None)
+        CGEventSetType(e, kCGEventFlagsChanged)
+        CGEventSetIntegerValueField(e, kCGKeyboardEventKeycode, 57)
+        CGEventSetFlags(e, kCGEventFlagMaskAlphaShift if flag_on else 0)
+        return e
+
+    down = _make(True)
+    up   = _make(False)
+
+    if pid and pid != os.getpid():
+        CGEventPostToPid(pid, down)
+        CGEventPostToPid(pid, up)
+    else:
+        CGEventPost(kCGHIDEventTap, down)
+        CGEventPost(kCGHIDEventTap, up)
 
 
 def _send_key(keycode: int, flags: int, pid: Optional[int]):
