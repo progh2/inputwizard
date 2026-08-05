@@ -35,11 +35,9 @@ class FloatingWindow(QMainWindow):
         flags = (
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
-            | Qt.Tool
         )
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setWindowTitle("InputWizard")
 
     def _make_non_activating(self):
