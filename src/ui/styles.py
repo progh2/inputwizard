@@ -55,6 +55,24 @@ SCROLL_BTN = _KEYCAP.format(
     fs=15,
 )
 
+# 한/영 버튼 — 한글 모드 (따뜻한 주황/빨강 계열)
+IME_KO_BTN = _KEYCAP.format(
+    top="#ff8c6b", mid="#f76b3c", bot="#e05525",
+    top_h="#ffa080", bot_h="#f07840",
+    fg="#ffffff",
+    border="#c04020", shadow="#8a2c12",
+    fs=13,
+)
+
+# 한/영 버튼 — 영문 모드 (크림 기본)
+IME_EN_BTN = _KEYCAP.format(
+    top="#f5efe0", mid="#e8e0cc", bot="#d4c8b0",
+    top_h="#fdf6e8", bot_h="#ddd4bc",
+    fg="#2c2620",
+    border="#b8ab94", shadow="#8a7d66",
+    fs=13,
+)
+
 # 권한 경고 배너
 WARNING_STYLE = """
     QLabel {
