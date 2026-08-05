@@ -1,11 +1,11 @@
+import os
 import sys
-from PySide6.QtCore import Qt, QPoint, QTimer
+from PySide6.QtCore import Qt, QPoint, QTimer, QObject, QEvent
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QGridLayout, QVBoxLayout,
-    QPushButton, QLabel, QSizePolicy,
+    QPushButton, QLabel, QMenu, QMessageBox,
 )
 from PySide6.QtGui import QAction, QCursor
-from PySide6.QtWidgets import QMenu
 
 from src.ui.styles import CONTAINER, SCROLL_BTN, ACTION_BTN, IME_KO_BTN, IME_EN_BTN, WARNING_STYLE
 from src.actions import scroll as scroll_action
@@ -16,19 +16,33 @@ import src.config as config_store
 _HOLD_DELAY_MS    = 500
 _HOLD_INTERVAL_MS = 80
 _PERM_CHECK_MS    = 4_000
-_LANG_CHECK_MS    = 600       # 입력 언어 감지 주기
-_ACTIVATE_DELAY   = 80        # 이전 앱 활성화 → 이벤트 전송 딜레이(ms)
+_LANG_CHECK_MS    = 600
+_ACTIVATE_DELAY   = 150   # 이전 앱 완전 활성화 대기
+
+
+# ── 버튼 hover 시 PID 캡처 이벤트 필터 ──────────────────────
+
+class _HoverPIDFilter(QObject):
+    """버튼에 마우스가 올라오는 순간 frontmost 앱 PID를 캡처."""
+    def __init__(self, callback):
+        super().__init__()
+        self._cb = callback
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Enter:
+            self._cb()
+        return False
 
 
 class FloatingWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self._cfg                = config_store.load()
-        self._drag_pos: QPoint | None = None
-        self._last_outside_pos: QPoint | None = None
-        self._target_pid: int | None = None
-        self._prev_in_window     = False
-        self._input_lang         = "en"
+        self._cfg              = config_store.load()
+        self._drag_pos         = None
+        self._last_outside_pos = None
+        self._target_pid       = None
+        self._input_lang       = "en"
+        self._hover_filter     = _HoverPIDFilter(self._capture_pid)
 
         self._setup_window()
         self._build_ui()
@@ -56,7 +70,6 @@ class FloatingWindow(QMainWindow):
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(4)
 
-        # 권한 경고 배너
         self._warn_bar = QLabel("⚠ 접근성 권한 필요  [클릭하여 설정]")
         self._warn_bar.setStyleSheet(WARNING_STYLE)
         self._warn_bar.setAlignment(Qt.AlignCenter)
@@ -71,10 +84,9 @@ class FloatingWindow(QMainWindow):
         layout.setSpacing(5)
         outer.addWidget(grid_w)
 
-        # 한/영 버튼은 나중에 언어에 따라 스타일 교체하므로 별도 보관
         self._btn_ime   = self._make_btn("가\nA",  ACTION_BTN, "한/영 전환")
-        self._btn_copy  = self._make_btn("⌘\nC",  ACTION_BTN, "복사 (Cmd/Ctrl+C)")
-        self._btn_paste = self._make_btn("⌘\nV",  ACTION_BTN, "붙여넣기 (Cmd/Ctrl+V)")
+        self._btn_copy  = self._make_btn("⌘\nC",  ACTION_BTN, "복사 (Cmd+C)")
+        self._btn_paste = self._make_btn("⌘\nV",  ACTION_BTN, "붙여넣기 (Cmd+V)")
         self._btn_up    = self._make_btn("▲",      SCROLL_BTN, "위로 스크롤")
         self._btn_down  = self._make_btn("▼",      SCROLL_BTN, "아래로 스크롤")
 
@@ -82,6 +94,10 @@ class FloatingWindow(QMainWindow):
             self._btn_ime, self._btn_copy, self._btn_paste,
             self._btn_up, self._btn_down,
         ]
+
+        # 버튼마다 hover 진입 시 PID 캡처 필터 설치
+        for btn in self._action_btns:
+            btn.installEventFilter(self._hover_filter)
 
         for btn in (self._btn_ime, self._btn_copy, self._btn_paste):
             btn.setFixedSize(46, 46)
@@ -105,8 +121,7 @@ class FloatingWindow(QMainWindow):
         self._setup_scroll_btn(self._btn_up,   +1)
         self._setup_scroll_btn(self._btn_down, -1)
 
-    @staticmethod
-    def _make_btn(text, style, tooltip):
+    def _make_btn(self, text, style, tooltip):
         btn = QPushButton(text)
         btn.setStyleSheet(style)
         btn.setToolTip(tooltip)
@@ -114,33 +129,56 @@ class FloatingWindow(QMainWindow):
         btn.setContextMenuPolicy(Qt.PreventContextMenu)
         return btn
 
+    # ── PID 캡처 ─────────────────────────────────────────────
+
+    def _capture_pid(self):
+        """버튼 위에 마우스가 올라오는 순간 = 아직 이전 앱이 frontmost."""
+        if sys.platform != "darwin":
+            return
+        try:
+            from AppKit import NSWorkspace
+            app = NSWorkspace.sharedWorkspace().frontmostApplication()
+            if app:
+                pid = int(app.processIdentifier())
+                if pid != os.getpid():
+                    self._target_pid = pid
+                    print(f"[InputWizard] target pid={pid} ({app.localizedName()})")
+        except Exception as e:
+            print(f"[InputWizard] pid 캡처 실패: {e}")
+
     # ── 액션: 이전 앱 활성화 → 딜레이 → 이벤트 전송 ─────────
 
     def _run_with_focus_restore(self, action_fn):
-        """이전 앱 포커스를 되돌린 뒤 action_fn 실행."""
         pid = self._target_pid
         if sys.platform == "darwin" and pid:
             try:
                 from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps
                 app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
                 if app and not app.isTerminated():
-                    app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
-            except Exception:
-                pass
+                    ok = app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+                    print(f"[InputWizard] activate pid={pid} → {ok}")
+                else:
+                    print(f"[InputWizard] 앱 없음 또는 종료됨 pid={pid}")
+            except Exception as e:
+                print(f"[InputWizard] activate 실패: {e}")
             QTimer.singleShot(_ACTIVATE_DELAY, action_fn)
         else:
+            print(f"[InputWizard] pid 없음, fallback CGEventPost")
             action_fn()
 
     def _on_ime(self):
         pid = self._target_pid
+        print(f"[InputWizard] 한영전환 → pid={pid}")
         self._run_with_focus_restore(lambda: ime_action.toggle_ime(pid))
 
     def _on_copy(self):
         pid = self._target_pid
+        print(f"[InputWizard] 복사 → pid={pid}")
         self._run_with_focus_restore(lambda: clipboard_action.copy(pid))
 
     def _on_paste(self):
         pid = self._target_pid
+        print(f"[InputWizard] 붙여넣기 → pid={pid}")
         self._run_with_focus_restore(lambda: clipboard_action.paste(pid))
 
     # ── 스크롤 버튼 ──────────────────────────────────────────
@@ -150,10 +188,9 @@ class FloatingWindow(QMainWindow):
         timer.setInterval(_HOLD_INTERVAL_MS)
 
         def do_scroll():
-            ticks  = self._cfg.get("scroll_ticks", 3)
             pos    = self._last_outside_pos
             qt_pos = (pos.x(), pos.y()) if pos else None
-            scroll_action.scroll(direction, ticks, qt_pos)
+            scroll_action.scroll(direction, self._cfg.get("scroll_ticks", 3), qt_pos)
 
         timer.timeout.connect(do_scroll)
 
@@ -164,16 +201,14 @@ class FloatingWindow(QMainWindow):
         btn.pressed.connect(on_press)
         btn.released.connect(timer.stop)
 
-    # ── 타이머 기반 추적 ──────────────────────────────────────
+    # ── 타이머: 마우스 위치 + 접근성 권한 + 입력 언어 ─────────
 
     def _start_trackers(self):
-        # 마우스 위치 + 창 진입 시 PID 캡처
         t1 = QTimer(self)
         t1.setInterval(50)
         t1.timeout.connect(self._tick_mouse)
         t1.start()
 
-        # 접근성 권한 체크 (macOS)
         if sys.platform == "darwin":
             t2 = QTimer(self)
             t2.setInterval(_PERM_CHECK_MS)
@@ -181,7 +216,6 @@ class FloatingWindow(QMainWindow):
             t2.start()
             QTimer.singleShot(0, self._check_perm)
 
-            # 입력 언어 감지
             t3 = QTimer(self)
             t3.setInterval(_LANG_CHECK_MS)
             t3.timeout.connect(self._update_lang)
@@ -189,44 +223,20 @@ class FloatingWindow(QMainWindow):
             QTimer.singleShot(0, self._update_lang)
 
     def _tick_mouse(self):
-        pos       = QCursor.pos()
-        in_window = self.geometry().contains(pos)
-
-        if not in_window:
+        pos = QCursor.pos()
+        if not self.geometry().contains(pos):
             self._last_outside_pos = pos
-            if self._prev_in_window:
-                self._prev_in_window = False
-        else:
-            if not self._prev_in_window:
-                # 창 밖 → 창 안: 이 시점엔 아직 이전 앱이 frontmost
-                self._prev_in_window = True
-                self._capture_pid()
 
-    def _capture_pid(self):
-        if sys.platform != "darwin":
-            return
-        try:
-            from AppKit import NSWorkspace
-            app = NSWorkspace.sharedWorkspace().frontmostApplication()
-            if app:
-                pid = app.processIdentifier()
-                if pid != __import__("os").getpid():
-                    self._target_pid = pid
-        except Exception:
-            pass
-
-    # ── 입력 언어 감지 + 버튼 업데이트 ──────────────────────
+    # ── 입력 언어 감지 ────────────────────────────────────────
 
     def _update_lang(self):
-        if sys.platform != "darwin":
-            return
         from src.actions._macos import current_input_lang
         lang = current_input_lang()
         if lang != self._input_lang:
             self._input_lang = lang
             self._refresh_ime_btn(lang)
 
-    def _refresh_ime_btn(self, lang: str):
+    def _refresh_ime_btn(self, lang):
         if lang == "ko":
             self._btn_ime.setText("가\n↔")
             self._btn_ime.setStyleSheet(IME_KO_BTN)
@@ -251,26 +261,60 @@ class FloatingWindow(QMainWindow):
         request_accessibility()
         open_accessibility_settings()
 
-    # ── 컨텍스트 메뉴 (우클릭만) ─────────────────────────────
+    def _show_perm_status(self):
+        from src.actions._macos import is_trusted
+        from ApplicationServices import AXIsProcessTrusted
+        trusted = is_trusted()
+        pid     = os.getpid()
+        import sys as _sys
+        msg = QMessageBox(self)
+        msg.setWindowTitle("InputWizard — 권한 상태")
+        status = "✅ 허용됨" if trusted else "❌ 없음"
+        msg.setText(
+            f"접근성(손쉬운 사용) 권한: {status}\n\n"
+            f"Python 경로:\n{_sys.executable}\n\n"
+            f"프로세스 PID: {pid}\n"
+            f"마지막 대상 PID: {self._target_pid}\n\n"
+            + ("" if trusted else
+               "→ 시스템 설정 › 개인 정보 보호 및 보안 ›\n"
+               "   손쉬운 사용에서 이 터미널(또는 Python)을 허용하세요.")
+        )
+        if not trusted:
+            msg.addButton("설정 열기", QMessageBox.ButtonRole.ActionRole).clicked.connect(
+                self._open_accessibility
+            )
+        msg.addButton("닫기", QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+
+    # ── 컨텍스트 메뉴 ────────────────────────────────────────
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)
+
         aot = self._cfg.get("always_on_top", True)
-        act_aot = QAction(f"{'✓ ' if aot else ''}항상 위", self)
-        act_aot.triggered.connect(self._toggle_always_on_top)
-        menu.addAction(act_aot)
+        a = QAction(f"{'✓ ' if aot else ''}항상 위", self)
+        a.triggered.connect(self._toggle_always_on_top)
+        menu.addAction(a)
 
         sm = menu.addMenu("스크롤 강도")
         cur = self._cfg.get("scroll_ticks", 3)
         for t in (1, 3, 5, 10):
-            a = QAction(f"{'✓ ' if cur == t else ''}{t}틱", self)
-            a.triggered.connect(lambda _, v=t: self._set_scroll_ticks(v))
-            sm.addAction(a)
+            sa = QAction(f"{'✓ ' if cur == t else ''}{t}틱", self)
+            sa.triggered.connect(lambda _, v=t: self._set_scroll_ticks(v))
+            sm.addAction(sa)
 
         menu.addSeparator()
-        aq = QAction("종료", self)
-        aq.triggered.connect(self._quit)
-        menu.addAction(aq)
+
+        pa = QAction("🔐 권한 상태 확인", self)
+        pa.triggered.connect(self._show_perm_status)
+        menu.addAction(pa)
+
+        menu.addSeparator()
+
+        qa = QAction("종료", self)
+        qa.triggered.connect(self._quit)
+        menu.addAction(qa)
+
         menu.exec(self.mapToGlobal(pos))
 
     def _toggle_always_on_top(self):
@@ -308,7 +352,7 @@ class FloatingWindow(QMainWindow):
         self._save_position()
         super().closeEvent(event)
 
-    # ── 드래그 + 우클릭 메뉴 ─────────────────────────────────
+    # ── 드래그 + 우클릭 ──────────────────────────────────────
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
