@@ -1,13 +1,12 @@
 import sys
-from pynput.mouse import Controller as MouseController
-
-_mouse = MouseController()
+from typing import Optional, Tuple
 
 
-def scroll(direction: int, ticks: int) -> None:
-    """direction: +1 위, -1 아래"""
+def scroll(direction: int, ticks: int, qt_pos: Optional[Tuple[float, float]] = None) -> None:
+    """direction: +1 위, -1 아래 / qt_pos: 스크롤을 발생시킬 Qt 화면 좌표"""
     if sys.platform == "darwin":
-        # macOS는 dy 반전
-        _mouse.scroll(0, direction * ticks)
+        from src.actions._macos import scroll as _scroll
+        _scroll(direction, ticks, qt_pos)
     else:
-        _mouse.scroll(0, direction * ticks)
+        from pynput.mouse import Controller
+        Controller().scroll(0, direction * ticks)

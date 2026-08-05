@@ -1,20 +1,56 @@
-BTN_BASE = """
-    QPushButton {{
-        background-color: rgba(50, 50, 50, 210);
-        color: white;
-        border: 1px solid rgba(255,255,255,60);
-        border-radius: 8px;
-        font-size: {font_size}px;
-        padding: 0px;
-    }}
-    QPushButton:hover {{
-        background-color: rgba(80, 80, 80, 230);
-        border: 1px solid rgba(255,255,255,120);
-    }}
-    QPushButton:pressed {{
-        background-color: rgba(30, 30, 30, 240);
-    }}
+"""키캡 스타일 버튼 디자인."""
+
+# 전체 컨테이너 — 미니 키보드 바디 느낌
+CONTAINER = """
+#container {
+    background-color: rgba(30, 28, 36, 220);
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 25);
+}
 """
 
-SCROLL_BTN = BTN_BASE.format(font_size=16)
-ACTION_BTN = BTN_BASE.format(font_size=14)
+# 공통 키캡 베이스
+_KEYCAP = """
+QPushButton {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {top}, stop:0.55 {mid}, stop:1 {bot});
+    color: {fg};
+    border: 1px solid {border};
+    border-bottom: 3px solid {shadow};
+    border-radius: 7px;
+    font-family: "Arial Rounded MT Bold", "Helvetica Rounded", Arial, sans-serif;
+    font-size: {fs}px;
+    font-weight: bold;
+    padding-bottom: 1px;
+}}
+QPushButton:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {top_h}, stop:1 {bot_h});
+    border-bottom: 3px solid {shadow};
+}}
+QPushButton:pressed {{
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {bot}, stop:1 {top});
+    border-bottom: 1px solid {shadow};
+    padding-top: 2px;
+    padding-bottom: 0px;
+}}
+"""
+
+# 밝은 크림 키캡 (액션 버튼)
+ACTION_BTN = _KEYCAP.format(
+    top="#f5efe0", mid="#e8e0cc", bot="#d4c8b0",
+    top_h="#fdf6e8", bot_h="#ddd4bc",
+    fg="#2c2620",
+    border="#b8ab94", shadow="#8a7d66",
+    fs=13,
+)
+
+# 딥 블루 키캡 (스크롤 버튼)
+SCROLL_BTN = _KEYCAP.format(
+    top="#5c7cfa", mid="#4c6ef5", bot="#3b5bdb",
+    top_h="#748ffc", bot_h="#4263eb",
+    fg="#ffffff",
+    border="#364fc7", shadow="#1c3a9e",
+    fs=15,
+)

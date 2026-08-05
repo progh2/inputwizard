@@ -1,18 +1,23 @@
 import sys
-from pynput.keyboard import Controller as KeyboardController, Key
-
-_kb = KeyboardController()
-
-_MOD = Key.cmd if sys.platform == "darwin" else Key.ctrl
 
 
 def copy() -> None:
-    with _kb.pressed(_MOD):
-        _kb.press("c")
-        _kb.release("c")
+    if sys.platform == "darwin":
+        from src.actions._macos import copy as _copy
+        _copy()
+    else:
+        from pynput.keyboard import Controller, Key
+        kb = Controller()
+        with kb.pressed(Key.ctrl):
+            kb.press("c"); kb.release("c")
 
 
 def paste() -> None:
-    with _kb.pressed(_MOD):
-        _kb.press("v")
-        _kb.release("v")
+    if sys.platform == "darwin":
+        from src.actions._macos import paste as _paste
+        _paste()
+    else:
+        from pynput.keyboard import Controller, Key
+        kb = Controller()
+        with kb.pressed(Key.ctrl):
+            kb.press("v"); kb.release("v")
