@@ -12,13 +12,16 @@ def main():
     window.show()
     window.raise_()
 
-    # 창 표시 후 Dock 아이콘 숨기기 (순서 중요)
+    # 창 표시 후 Dock 아이콘 숨기기 + Accessory 모드 설정
     if sys.platform == "darwin":
         try:
             from AppKit import NSApp, NSApplicationActivationPolicyAccessory
-            NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-        except Exception:
-            pass
+            ok = NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+            policy = NSApp.activationPolicy()
+            # 0=Regular, 1=Accessory, 2=Prohibited
+            print(f"[IW] activation policy 설정 → {ok}, 현재={policy} (1=Accessory=포커스 안 빼앗음)")
+        except Exception as e:
+            print(f"[IW] activation policy 설정 실패: {e}")
 
     sys.exit(app.exec())
 

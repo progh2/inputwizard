@@ -227,6 +227,21 @@ class FloatingWindow(QMainWindow):
         if not self.geometry().contains(pos):
             self._last_outside_pos = pos
 
+        if sys.platform == "darwin":
+            self._update_target_pid_from_frontmost()
+
+    def _update_target_pid_from_frontmost(self):
+        try:
+            from AppKit import NSWorkspace
+            front = NSWorkspace.sharedWorkspace().frontmostApplication()
+            if front:
+                pid = int(front.processIdentifier())
+                if pid != os.getpid() and pid != self._target_pid:
+                    print(f"[IW] frontmost → {front.localizedName()} pid={pid}")
+                    self._target_pid = pid
+        except Exception as e:
+            pass
+
     # ── 입력 언어 감지 ────────────────────────────────────────
 
     def _update_lang(self):
