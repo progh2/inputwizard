@@ -1,24 +1,39 @@
 """macOS 전용 Quartz CGEvent 기반 이벤트 주입."""
+import os
 from typing import Optional, Tuple
 
 
-def check_accessibility() -> bool:
-    """접근성 권한 확인. 없으면 macOS 시스템 팝업 자동 표시."""
+def is_trusted() -> bool:
+    """접근성 권한 현재 상태 (팝업 없이 조용히 확인)."""
+    from Quartz import AXIsProcessTrusted
+    return bool(AXIsProcessTrusted())
+
+
+def request_accessibility() -> bool:
+    """권한 요청 팝업 띄우기 + 현재 상태 반환."""
     from Quartz import AXIsProcessTrustedWithOptions
     return bool(AXIsProcessTrustedWithOptions({"AXTrustedCheckOptionPrompt": True}))
 
 
-def copy():
-    _send_key(8, _cmd())   # keycode 8 = 'c'
+def open_accessibility_settings():
+    """손쉬운 사용 설정 창 바로 열기."""
+    os.system(
+        "open 'x-apple.systempreferences:"
+        "com.apple.preference.security?Privacy_Accessibility'"
+    )
 
 
-def paste():
-    _send_key(9, _cmd())   # keycode 9 = 'v'
+def copy(pid: Optional[int] = None):
+    _send_key(8, _cmd(), pid)   # keycode 8 = 'c'
 
 
-def toggle_ime():
-    # Caps Lock (keycode 57) = 한국 macOS 한영 전환 키
-    _send_key(57)
+def paste(pid: Optional[int] = None):
+    _send_key(9, _cmd(), pid)   # keycode 9 = 'v'
+
+
+def toggle_ime(pid: Optional[int] = None):
+    # Caps Lock keycode 57 = 한국 macOS 한영 전환
+    _send_key(57, 0, pid)
 
 
 def scroll(direction: int, ticks: int, qt_pos: Optional[Tuple[float, float]] = None):
@@ -31,7 +46,6 @@ def scroll(direction: int, ticks: int, qt_pos: Optional[Tuple[float, float]] = N
     event = CGEventCreateScrollWheelEvent(None, kCGScrollEventUnitLine, 1, direction * ticks)
 
     if qt_pos is not None:
-        # Qt 좌표(좌상단 원점) → macOS 좌표(좌하단 원점) 변환
         screen_h = NSScreen.mainScreen().frame().size.height
         CGEventSetLocation(event, (qt_pos[0], screen_h - qt_pos[1]))
 
@@ -45,15 +59,21 @@ def _cmd() -> int:
     return kCGEventFlagMaskCommand
 
 
-def _send_key(keycode: int, flags: int = 0):
+def _send_key(keycode: int, flags: int, pid: Optional[int]):
     from Quartz import (
         CGEventCreateKeyboardEvent, CGEventSetFlags,
-        CGEventPost, kCGHIDEventTap,
+        CGEventPost, CGEventPostToPid, kCGHIDEventTap,
     )
     down = CGEventCreateKeyboardEvent(None, keycode, True)
     up   = CGEventCreateKeyboardEvent(None, keycode, False)
     if flags:
         CGEventSetFlags(down, flags)
         CGEventSetFlags(up, flags)
-    CGEventPost(kCGHIDEventTap, down)
-    CGEventPost(kCGHIDEventTap, up)
+
+    my_pid = os.getpid()
+    if pid and pid != my_pid:
+        CGEventPostToPid(pid, down)
+        CGEventPostToPid(pid, up)
+    else:
+        CGEventPost(kCGHIDEventTap, down)
+        CGEventPost(kCGHIDEventTap, up)

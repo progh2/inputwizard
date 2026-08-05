@@ -1,10 +1,11 @@
 import sys
+from typing import Optional
 
 
-def toggle_ime() -> None:
+def toggle_ime(pid: Optional[int] = None) -> None:
     if sys.platform == "darwin":
         from src.actions._macos import toggle_ime as _toggle
-        _toggle()
+        _toggle(pid)
     elif sys.platform == "win32":
         _toggle_windows()
     else:

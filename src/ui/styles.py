@@ -54,3 +54,18 @@ SCROLL_BTN = _KEYCAP.format(
     border="#364fc7", shadow="#1c3a9e",
     fs=15,
 )
+
+# 권한 경고 배너
+WARNING_STYLE = """
+    QLabel {
+        background-color: rgba(220, 80, 50, 200);
+        color: white;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: bold;
+        padding: 4px 6px;
+    }
+    QLabel:hover {
+        background-color: rgba(240, 100, 60, 220);
+    }
+"""
